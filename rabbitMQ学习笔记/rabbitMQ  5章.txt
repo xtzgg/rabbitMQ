@@ -1,0 +1,124 @@
+
+第五章：
+<1> 本章导航(5.1)：
+	首先了解rabbitMQ集群架构模式
+	接下来从零开始构建一个高可靠性的rabbitMQ集群
+	集群的配置文件与集群运维故障、失败转义讲解
+	高级插件的使用
+<2> rabbitMQ集群架构模式
+	1、主备模式：实现rabbitMQ的高可用集群，一般在并发和数据量不高的情况下，
+						------------------------------
+	这种模式非常好用且简单。主备模式也称为warren模式
+
+	(主备：主节点读写，从节点不提供任何读写，挂掉之后，提供主节点所有功能)
+	(主从：主节点提供读写，从节点提供只读的功能)
+
+	2、主备模式：所谓的rabbitMQ另外一种模式就是warren(兔子窝)，就是一个
+	主/备方案(主节点如果挂了，从节点提供服务而已，和activeMQ利用zookeeper做
+	主/备一样)
+
+	3、主备模式(二)
+		cosumer
+		   |
+		haproxy
+		|      |
+	    主mq     从mq
+		   |
+		共享存储
+	4、主备模式(三)
+	     HaProxy配置：
+	     listen rabbitmq_cluster  #监听的主备集群名字
+	     bind 0.0.0.0:5672  #配置TCP模式
+	     mode tcp #简单的轮询
+	     balance roundrobin #主节点
+	     server bhz76 47.98.223.30:5672 check inter 5000 rise 2 fall 2
+	     server bhz77 47.98.223.30:5672 backup check inter 5000 rise fall 2 #备用节点
+
+	     备注：rabbitmq集群节点配置
+		#inter 每隔5秒对mq集群做健康检查，2次正确证明服务器可用，3次失败证明
+		服务器不可用，并且配置主备机制
+	        #rise 2 //2次正确
+		#fall 3 //三次失败
+		#backup 备用节点
+	     
+	5、远程模式：
+		a、远程模式可以实现双活的一种模式，简称shovel模式，所谓shovel就是我们
+		可以把消息进行不同数据中心的复制工作，我们可以跨地域让两个mq集群互联
+		b、远程模式：远距离通信和复制；看一下shovel架构模型
+		c、多个中心分摊压力，数据同步
+		d、远程模式(四)
+			A、shovel集群的配置，首先启动rabbitmq插件，命令如下：
+				rabbitmq-plugins enable amqp_client
+				rabbitmq-plugins enable rabbitmq_shovel
+			B、创建rabbitmq.config文件：touch /etc/rabbitmq/rabbitmq.config
+			C、添加配置见rabbit.config
+			D、最后我们需要源服务器和目的地服务器都使用相同的配置文件(
+			rabbit.config
+			)
+
+
+<3> 镜像模式(5.3-4)
+	1、镜像模式：集群模式非常经典的就是Mirror镜像模式，保证数据100%不丢失，在实际
+	工作中也是用的最多的。并且实现集群非常的简单，一般互联网大厂都会构建这种镜像
+	集群模式
+	2、镜像模式(一)
+		a、Mirror镜像队列：目的是为了保证rabbitmq数据的高可靠性解决方案，主要
+		就是实现数据的同步，一般来讲是2-3个节点实现数据同步(对于100%数据可靠性
+		解决方案一般是3节点) 集群架构如下：
+
+					springboot application
+			|						|
+		高可用负载均衡代理				  高可用负载均衡代理
+		HA-proxy keepAlived--------------VIP------------- HA-proxy keepAlived
+			|  |   |					|  |  |
+
+					mirror queue
+					rabbitMQ broker  .......
+					centOS
+		
+	3、多活模式：这种模式也是实现异地数据复制的主流模式，因为shovel模式配置比较
+	复杂，所以一般来说实现异地集群都是使用这种双活或者多活模型来实现的。这种模型
+	需要依赖rabbitmq的federation插件，可以实现持续的可靠的AMQP数据通信，多活模式
+	在实际配置与应用非常简单
+		a、rabbitMQ部署架构采用双中心模式(多中心)，那么在两套(或多套)数据中心
+		各部署一套rabbitMQ集群，各中心的rabbitMQ服务除了需要为业务提供正常的
+		消息服务外，中心之间还需要实现部分队列消息共享。多活集群架构如下：
+		(一个集群挂掉，其他仍然可以提供服务)
+		
+		b、多活模式(二)
+
+					application
+		
+			|					|
+		LBS负载均衡				LBS负载均衡
+
+
+		rabbit node1 2...  ------ federation----- rabbit nodel,2,3...
+
+		注：federation是建立的每个rabbit node节点上的
+
+		c、多活模式(三)
+			federation插件是一个不需要构建cluster，而在brokers之间传输
+		消息的高性能插件，federation插件可以在brokers或者cluster之间传输消息
+		，连接的双方可以使用不同的users和virtual hosts，双方也可以使用版本
+		不同的rabbitMQ和erlang。federation插件使用AMQP协议通讯，可以接受不连续
+		的传输
+
+		d、多活模式(四)
+			federation exchanges：可以看成DownStream从Upstream主动拉取消息
+		，但并不是拉取所有消息，必须是在downstream上已经明确定义Bindings关系的
+		exchange，也就是是实际物理Queue来接收消息，才会从upstream拉取消息
+		到Downstream。使用AMQP协议实施代理间通信，Downstream会将绑定关系组合
+		在一起，绑定/解除命令将发送到upstream交换机。因此，federation exchange
+		只接收具有订阅的消息，本处贴出官方图来说明：
+			略(不是很懂)
+
+
+<4> RabbitMQ集群镜像模式构建
+	1、rabbitMQ集群环境节点说明
+		
+	2、
+
+
+
+

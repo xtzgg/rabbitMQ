@@ -1,0 +1,231 @@
+四层表示法：
+<1>
+  1)
+	1
+	2
+	...
+		a
+		b
+		c
+			A
+			B
+			C
+
+
+rabbitMQ第四章
+	本章导航：
+	  1、rabbitMQ整合springAMQP实战
+	  2、rabbitMQ整合spirngboot实战 //缺点：特别细粒度的配置需要自己实现
+	  3、rabbitMQ整合springcloud实战
+
+<1> rabbitMQ整合spring AMQP实战(4.1-2)
+	1、rabbitAdmin
+	2、springAMQP声明
+	3、rabbitTemplate #消息模板
+	3、simpleMessageListenerContainer #简单消息监听容器
+	4、messageListenerAdapter #消息监听适配器
+	5、messageConverter # 转换器
+
+	6、实战
+		a、rabbitAdmin
+			A、注意autoStartup必须要设置为true，否则spirng容器不会加载rabbitAdmin类
+			B、rabbitAdmin地城实现就是从spring容器中获取exchange、binding、routingKey
+			以及queue的@ Bean声明
+			C、然后使用rabbitTemplate的execute方法执行对应的声明、修改、删除
+			等一系列的rabbitMQ基础功能操作
+			D、例如：添加一个交换机、删除一个绑定、清空一个队列里的消息等等
+
+			代码编写...
+				主要整合spring和mq
+					讲了admin和template应用举例
+				
+		b、springbootTest测试：讲述(4.3)
+			A：如何声明一个交换机
+			B：如何声明一个队列
+			C：如何绑定队列和交换机
+			D：综合创建和绑定一块实现的另一种方式
+			F：如何删除一个队列中的消息
+			
+		c、 (4.4-5)rabbitAdmin地城实现就是从spring容器中获取exchange、binding、routingKey
+		    以及queue的@ Bean声明
+			然后使用rabbitTemplate的execute方法执行对应的声明、修改、删除
+		    等一系列的rabbitMQ基础功能操作
+			
+			源码讲解：4.4
+			讲rabbitAdmin在bean初始化之后做了哪些操作
+		
+		     4.5 SpringAMQP声明
+		           在rabbit基础API里面声明一个exchange、声明一个绑定、一个队列
+			
+		     继续在config配置文件中进行设置@ Bean
+			主要讲了：如何在config中注入对应的exhange，queue，绑定关系等等
+		
+		d、消息模板-rabbitTemplate (4.6 )
+
+			rabbitTemplate，即消息模板
+			
+			A、我们在与springAMQP整合的时候进行发送消息
+
+			B、该类提供了丰富的发送消息方法，包括可靠性投递消息方法，回调监听
+			消息接口confirmCallback、返回值确认接口returnCallback等等。同样
+			我们需要进行诸如到spring容器中，然后直接使用
+
+			C、在于spring整合时需要实例化。但是在于springBoot整合时，在配置文件
+			里添加配置即可
+				
+			D、代码编写....
+				主要注入rabbitTemplate
+				然后使用该对象举例使用各种方式发送消息
+
+		e、simpleMessageListenerContainer #简单消息监听容器
+
+			简单消息监听容器
+
+			A、这个类非常强大，我们可以对他进行很多设置，对于消费者的配置项，这个类都可以满足
+			
+			B、监听队列(多个队列)、自动启动、自动声明功能
+			
+			C、设置事务特性、事务管理器、事务属性、事务容量(并发)、是否开启
+			事务，回滚消息等
+
+			D、设置消费者数量，最小最大数量、批量消费
+
+			E、设置消息确认和自动确认模式、是否重回队列、异常捕获hander函数
+
+			F、设置消费者标签生成策略、是否独占模式、消费者属性等
+
+			G、设置具体的监听器，消息转换器
+
+			注意：simpleMessageListenerContainer可以进行动态设置，比如
+			在运行中的应用可以动态的修改其消费者数量的大小、接收消息的模式等
+
+			很多基于rabbitMQ的自制化后端管控台在进行动态设置的时候，也是
+			根据这一特性去实现的。所以可以看出springAMQP非常的强大
+
+			思考：simpleMessageListenerContainer为什么可以动态感知配置变更？	
+			
+			代码编写...
+				主要讲了上述对象功能及实际操作
+		f、messageListenerAdapter(4.8-9)
+
+			messageListenerAdapter即消息监听适配器
+				自定义方法体message
+			A、代码实战
+			B、TextMessageConverter的使用
+				自定义方法名
+				*实现自定义传递参数类型
+		
+			1< (重点)
+			  通过messageListenerAdapter的代码我们可以看出如下核心属性
+				a> defaultListenerMethod 默认监听方法名称：用于设置监听方法名称
+				b> delegate委托对象：实际真是的委托对象，用于处理消息
+				c> queueOrTagToMethodName 队列表示和方法名称组成的集合
+				d> 可以--已经队列与方法名称的匹配
+				e> 队列和方法名称绑定，即指定队列里的消息被绑定的方法所接受处理
+			
+		g、MessageConverter 消息转换器(4.10)
+			A、我们在进行发送消息的时候，正常情况下消息体以二进制的数据方式进行传输，如果希望内部帮我们进行转换，
+			或者指定自定义的转换器，就需要用到MessageConverter
+			B、自定义常用转换器：MessageConverter，一般来讲都需要实现这个接口
+			C、重点下面两个方法
+				toMessage：java对象转换为Message
+				fromMessage：Message对象转换为java对象
+			  上节是spring类型的转换器 toMessage FromMessage
+			D、json转换器：Jackson2JsonMessageConverter：可以进行java对象转换功能
+			E、DefaultJackson2JavaTypeMapper映射器：可以进行java对象的映射关系
+			F、自定义二进制转换器：比如图片类型、PDF、PPT、流媒体
+				//全局转换器  
+			
+<2> springboot整合mq
+
+	1、spring的rabbitsender设置
+	2、return和confirm及生产端设置
+	3、消费端设置
+		a、
+		 * 消费端设置
+		 * 首先确认配置手工确认模式，用于ACK的手工处理，保障消息的可靠性到达，
+		 * 或者再消费端消费失败的实收进行重回队列，根据业务记录日志等(重回队列不考虑)
+		 *
+		 * 可以设置消费端的监听个数和最大个数，用于控制消费短短额并发情况
+		b、
+		 * 消费端监听 @RabbitMQListener注解，这个对于在实际工作中非常的好用
+		 * @RabbitListener是一个组合注解，里面可以注解配置
+		 * @QueueBinding、@Queue、@Exchange 直接通过这个组合注解一次性搞定消费端小换季
+		 * 队列、绑定、路由、并且配置监听功能等
+		c、将这些注解参数写入配置文件${}获取，并且实验传递对象，并接收对象
+
+		d、整个过程总结：
+			发送端：
+				设置：开启confirm return监听 
+				rabbitTemplate设置cofirm和return
+				设置destinationTag //消息ID
+				设置消息properties和message的body体
+				createMessage
+				发送消息
+			消费端：
+				配置监听：
+				@RabbitHander
+				#RabbitListener(@binding=(@QueueBinding=
+					
+				))
+				@PayLoad @Headers
+				(Long)message.getHeaders().get(Headers.DELIVERY_TAG)
+				Channel.basicAck(delivery_tag,false);//手工签收
+				另外，自定义配置参数，发送对象信息等
+<3> 与SpringCloud Stream整合
+	1、介绍springCloud Stream
+		a、springCoud：全家桶在整个中小型互联网公司异常火爆，呢么想对应着，
+		spring Cloud Stream就渐渐的被大家所重视起来，这一节课主要来介绍
+		springcloud stream如何与rabbitMQ进行集成
+		b、rabbitMQ------Destination Binder------kafaka //可以实现：生产端可以使用kafka，消费端可以使用amq等
+		c、spring cloud stream application
+		        application core
+			|		|
+		      input          outputs
+			|		|
+		         binder Middleware
+		d、spring cloud steam整体核心架构(见4-16)
+		e、Barista接口：Barista接口是定义来作为后边类的参数，这一接口定义
+		来通道类型和通道名称，通道名称是作为配置用，通道类型则决定了
+		app会使用这一通道进行发送消息还是从中接收消息
+		f、该通道接口定义：
+			A、@Output： 输出注解，用于定义发送消息接口
+			B、@Input：  输入注解，用于定义消息的消费者接口
+			C、@StreamListener： 用于定义监听方法的注解
+		g、使用spring cloud stream非常简单，只需要使用好这3个注解即可，
+		在实现高性能消息的生产和消费的场景非常适合，但是使用springcloudstream
+		框架有个非常大的问题就是不能实现可靠性的投递，也就是没法保证消息的
+		100%可靠性，会存在少量信息丢失的问题
+		 (由于整合兼容kafka，做一个上层抽象，所以消息可靠性)
+		h、这个原因是因为spirngcloudstream框架为了和kafka兼顾所以在实际工作中
+		使用它的目的就是针对高性能的消息通信的！这点就是当前版本spring cloud
+		stream的定位
+		I、所以实际项目中使用springboot或者springAMQP比较好
+		(当然，根据实际应用场景进行选择)
+
+	2、springcloudstream和rabbitMQ整合(4.17)
+		下边练习：代码不演练，只讲解代码
+		
+	3、本章总结(4.18)
+		整合spring boot cloud
+			1 admin
+			  声明消息
+			  模板声明
+			  simple
+			  adapter
+			  converter
+
+			2 rabbitListener
+			  rabbitTemplate
+			3 cloud 生产端消费端都可以使用kafka或者rmq
+
+
+
+1 导航
+2 入门内容
+3 mq api	//对后边理结更加透彻
+4 讲与各种框架整合 //真正实践的重要内容 从spirngboot开始
+5 将rabbitmq集群等 //服务器方面
+6 讲set架构			//实际操作加理论
+7 讲rabbitmq消息发送各种方式
+8 总结

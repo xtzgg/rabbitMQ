@@ -1,0 +1,399 @@
+四层表示法：
+<1>
+  1)
+	1
+	2
+	...
+		a
+		b
+		c
+			A
+			B
+			C
+
+<1> rabbitMQ第一阶段总结(前两章节)
+	1 mq为什么选择erlang语言编写(有着和原生socket一样的延迟)
+	2 mq使用AMQP协议，connection channel exchange等
+	3 mq的安装 控制台的操作
+		mqctl 进行各种操作等等
+		mq的管控台
+	4 exchange常用分类
+		direct
+		topic
+		fanout
+	5 绑定exchange和queues
+	6 message特点
+		header和body
+			细节进行设置
+
+
+<2> rabbitMQ高级特性：
+   1) 本章导航
+	1 消息如何保障100%的投递成功？
+	2 幂等性概念详解
+	3 在海量订单产生的业务高峰期，如何避免消息的重复消费问题？(幂等性实战应用)
+	4 rabbitMq的消息投递机制(两种方式)
+		a、confirm确认消息
+		b、return返回消息
+
+	5 自定义消费者(前面使用while循环，不优雅，本节使用该方式定义)
+	6 消息的ACK(签收等)与重回队列
+	7 消息的限流(服务端推送数据过多，消费端消费能力不强，会导致内存膨胀，节点挂掉)
+	8 TTL消息(过期)
+	9 死信队列(会讲哪几种方式消息会流转到死信队列里面)
+
+   2) 消息如何保障100%的投递成功//3-1_3
+	1 什么是生产端的可靠性投递？
+		a、保障消息的成功发出
+		b、保障MQ节点的成功接收
+		c、发送端收到MQ节点(Broker)确认应答
+			Broker：就是mq服务器
+		d、完善的消息进行补偿机制(临界情况：网络故障等等)
+
+	2 BAT/TMD互联网大厂的解决方案(经典案例)
+		a、消息落库，对于消息状态进行打标  //解决生产者sender和MQ之前传递消息时出现的各种问题
+			BIZDB入库(存储消息)<-----sender---->MQ Broker |
+			MsgDB		    confirm Listener<----------
+					    (生产端异步监听消息是否成功)
+			//update和insert操作 status=0 (是否加事务，根据具体情况：失败，使用快速失败机制)
+			//confirm----status=1
+			//入库设置临界值：如5分钟 这时：使用分布式定时任务(同一个时间点只有一个任务抓取数据，保证不会重复抓取)
+			//如：每隔几分钟抓一下msg为0的状态内容
+				：问题：刚发的消息也会处理，所以可以设置一个消息延迟处理
+			//如果routingkey等设置错误，或者exchange被删除，或者管理员操作，网络闪断等
+				可以设置操作最大次数：大于该次数status=2//人工处理
+					但这种问题很少了，偶尔一两单左右
+
+
+		b、消息的延迟投递，做二次确认，回调检查  //
+			生产端可靠性投递(三)
+				保障MQ我们思考如果第一种可靠性投递，在高并发场景下是否适合？
+			生产端可靠性投递(四)
+				所以使用：消息的延迟投递，做二次确认，回调检查(减少数据库持久化)
+		
+		注意：不论第一种或第二种：
+				都是在数据入库之后，再发消息！
+				-------------------------------
+					入库失败(快速失败机制解决)，不使用事务
+								    ----------
+					   (发送给消费端)
+				upstream---first send-----------------MQ Broker
+					   second send delay check----|
+					   (第二次发送：延迟消息检查)
+			保证性能
+			用callback补偿服务
+			这种方式其他失败：可以通过定时或者人工干预解决(基本问题都可以解决)
+
+   3) 幂等性概念//3-4
+	1 幂等性是什么？
+		a、我们可以借鉴数据的乐观锁机制：
+		b、比如我们执行一条更新库存的SQL语句
+		c、UPDATE T_REPS SET COUNT=COUNT-1,version=version+1 where version=1
+			加版本号保证count库存值高并发情况下，不会等于-1的情况
+		
+	总的来说就是对一个结果执行成百上千次，但是每次执行后的结果都是相同的(唯一的)，这就是幂等性
+
+	2 消费端-幂等性保障
+		在海量订单产生的业务高峰期，如何避免消息的重复消费问题？
+			a、消息实现幂等性，就意味着，我们的消息永远不会被消费多次，即使我们
+			收到了多条一样的消息
+
+			b、业界主流的幂等性操作：
+				A、唯一ID + 指纹码机制，利用数据库主键去重
+				B、利用Redis的原子性去实现
+		
+
+			c、唯一ID + 指纹码 机制  //指纹码 可以是时间戳等等
+				A、唯一ID + 指纹码 机制，利用数据库主键去重
+				B、SELECT COUNT(1) FROM T_ORDER WHERE ID = 唯一ID + 指纹码
+				C、好处：实现简单
+				D、坏处：高并发下有数据库写入的性能瓶颈
+				E、解决方案：跟进ID进行分库分表进行算法路由
+	3 利用redis原子性实现				
+		使用redis进行幂等，需要考虑的问题
+			a、我们是否要进行数据落库，如果落库的话，关键解决问题的是数据库和缓存如何做到原子性
+			b、如果不进行落库，那么都存储到缓存中，如何设置定时同步策略？
+			
+			需要注意：redis原子性和数据库事务不是同一个事务，如何保证一致性？
+
+   4) 理解confirm消息确认机制：
+	1 消息的确认，是指生产值投递消息后，如果Broker收到消息，则会给我们生产者一个应答。
+	2 生产者进行接收应答，用来确定这条消息是否正常的发送到Broker，这种方式也是消息的可靠性投递的核心保障！
+
+	a、confirm确认消息流程解析
+		确认机制流程图：
+		sender-------------send message---->MQ Broker
+
+		producer			    
+
+		confirm listener<---broker confirm<---MQ Broker
+	
+	b、如何实现confirm确认消息？
+		A、在channel上开启确认模式：channel.confirmSelect()
+		B、在channel上添加监听：addConfirmListener，监听成功和失败的返回结果，
+		根据具体的结果对消息进行重新发送、或记录日志等后续处理！
+
+		代码编写eclipse...
+
+		确认模式(只在生产端做的)：生产端
+		如：创建工厂---setHost setPort setVirtualHost
+		    获取connection
+		    获取channel
+		    指定消息确认模式：channel.confirmSelect();
+		    String exchangeName="test_confirm_exchange";
+		    String routingKey="confirm.save";
+		    发送一条消息			     
+		    String msg="hello RabbitMq confirm message!"
+		    注：body = msg.getBytes()		    # props 
+		    channel.basicPublish(exchange,routingkey,null,body);
+		    添加一个确认监听
+		    channel.addConfirmListener(new ConfirmListener(){
+			//错误时调用
+			void handleNack(...){
+				syso----no ack!		#如果queue容量满了，磁盘满了，mq出现了一些异常，会走这个
+			}				#如果没有走这两个方法，呢么就需要使用定时任务进行补偿，
+			//返回成功时调用		#这个就是消息百分百投递解决方案1；
+			void handleAck(...){		
+				syso----ack!		#工作机制：生产端发送消息给mq ，消费端接收到mq的消息后，发送一个确认应答给生产端，生产端做一些处理操作
+			}
+		    })
+		消费端：
+		    ...略
+		    String exchangeName="test_confirm_exchange";
+		    String routingKey="confirm.#"; //生产端发送叫做confirm.save；这里使用#
+		    String queueName="test_confirm_queue";
+		    *不需要指定消息确认模式；
+		    声明exchange交换机和队列进行绑定设置，最后指定路由key	#这个在consumer和生产端都可以设置
+						    #  type  durble
+		    channel.exchangeDeclare(exchange,"topic",true);
+					# 队列名称  持久化 独占模式 autodelete arguments
+		    channel.queueDeclare(queueName,true,false,false,null);
+		    channel.queue(queueName,exchangeName,routingKey);
+
+		    QueueingConsumer queueingConsumer = new QueueingConsumer(channel);
+		    channel.basicConsume(queue,true,queueingConsumer);
+		    while(true){
+			Delivery delivey = queueingConsumer.nextDelivery();//接收下一条指令
+			String msg = new String(delivery,getBody());
+			syso-------msg;
+		    }
+
+
+		    代码编写完成：
+		    需要注意小细节
+			声明exchange交换机和队列进行绑定设置，最后指定路由key	
+			#这个在consumer和生产端都可以设置
+			#但是如果指定路由key是confirm.#呢么每次运行都会生成一次exchange参数
+			#如果是固定confirm.save ，呢么就会判断存在该key就不会再次声明exchange了，这个要注意
+			#如果声明了，可以在管控台注解绑即可
+
+   5) return消息机制
+	1 return listener 用户处理一些不可路由的消息！
+	2 我们的消息生产者，通过指定一个exchange和routingkey，把消息送达到某一个队列中去，
+	然后我们的消费者监听队列，进行消息处理操作!	#一般思路
+	3 但是在某些情况下，如果我们在发送消息的时候，当前的exchange不存在或者指定的路由key
+	路由不到，这个时候如果我们需要监听这种不可达的消息，就要使用return listener!
+	
+	a、在基础API中有一个关键的配置项：
+	    Mandatory：如果true，则监听器会接收到路由不可达的信息，然后进行后续处理，如果为false，
+	那么broker端自动删除该消息！
+	图解：
+	producer----------> NotfindExchange
+
+	return
+	listener<-----------MQ Broker
+
+	编写代码：
+	生产端：
+	创建工厂----setHost Prot virtualHost  connection channel 
+	String exchange routingkey roukeykeyerror msg
+	channel.addReturnListener(new ReturnListener(){
+		void handleReturn(....){
+			syso-----handle return
+			syso----各种参数
+		}	
+	})
+	channel.basicPublish(exchange,routing,true,null,body);
+
+
+	消费端：
+	...略
+
+	String queueName="test_return_queue";
+	channel.exchangeDeclare(exchage,"topic",true,false,null);
+	channel.queueDeclare(...);
+	channel.queueBind(...);
+	创建消费者，消费...
+
+	首先使用正确的routingkey进行操作：消费端接收到了，Mandatory=true
+	使用错误的routingkey进行操作，消费端没有收到 Mandatory=false；生产端也没有收到
+	使用错误的routingkey进行操作，消费端没有收到 Mandatory=true；生产端收到了
+
+
+   6) 消费端自定义监听
+	1 我们一般就是在代码中编写while循环，进行consumer.netDelivery方法进行获取下一条消息
+	然后进行消费处理！
+	2 但是我们使用自定义的consumer更加方便，解耦行更加强，也是在实际工作中
+	最常用的使用方式！
+	
+	如何做：
+		只需要继承extends DefaultConsumer
+		方法只需要 
+			一个自定义构造方法
+			handleDelivery(...){
+				syso-----consume message----
+				syso-----各种参数
+			}
+	该节课：只是讲了如何自定义消费者，简单查看输出参数
+
+   7) 消费端限流(3.8-9)
+	什么是消费端的限流？
+		假设一个场景，首先，我们rabbitMq服务器在上万条未处理的消息，
+		我们随便打开一个消费者客户端，会出现下面情况：
+		
+		巨量消息瞬间全部推送过来，但是我们单个客户端无法同时处理这么多数据！
+
+	由于生产端，高峰期就是这么大并发量，客户访问量，所以在生产端无法限制消息多少
+	只能在消费端做一个限流操作
+
+	a、RabbitMQ提供了一种qos(服务质量保证)功能，即在非自动确认消息的前提下，如果一定
+						     ----------***----------
+	b、数目的消息(通过基于consume或者channel设置Qos的值)未被确认前，不进行消费新的消息
+	
+	c、void basicQos(uint prefetchSize,ushort prefetchCount,bool global);
+	#注：该方法是在消费端编写的
+	# 参数1 ：能处理的消息大小(一般在生产端限制，消费端不做显示，默认为0)
+	# 参数2 ：一次性处理多少条消息(默认设为1)
+	# 参数3 ：设置级别：mq有两个channel级别(管道上设置) consumer(消费端进行限流设置)
+		true就是在channel上做限制(一个channel可以有好多consumer)
+		false就是在consumer上做限制
+	d、三个参数再解释：
+	   prefetchSIze：0
+	   prefetchCount：会告诉rabbitMQ不要同时给一个消费者推送多于N个消息，
+	   即一旦有N个消息还没有ack，则该consumer将block掉，直到有消息ack
+	   global：true\false是否将上面设置应用于channel，简单点说，就是上面
+	   限制是channel级别的还是consumer级别
+	e、注意事项
+	   prefetchSize和global这两项，rabbitMq没有实现，暂且不研究prefetch_count
+	   在no_ask=fasle (ack非自动签收)的情况下生效，即在自动应答的情况下这两个值是不生效的。
+	
+	代码编写：
+	  生产端没有变化
+
+	  消费端：
+	  1 限流方式
+	     第二件事情：使用basicQos(0,1,false);方法
+	     第一件事情：autoAck设置为false
+	     channel.basicConsume(queueName,false,new MyConsumer(channel));
+	     第三件事情：
+		自定义消费端添加private Channel channel;
+				this.channel = channel
+		handleDelivery(...){
+			deliverTag = envelope.getDeliveryTag();
+			channel.basicAck(deliverTag,false);//设置不支持批量签收,一个一个签收
+		}
+	  2 启动实验(启动消费端，查看管控台是否正常[exchange，queue，routingkey等]，然后启动生产端)
+		生产者发送了5条，但消费者只收到了一条
+			由于channel.basicConsume 设置的是手工签收
+			而且basicQos设置每次接收一条，而接收后如果在
+			consume端没有给我ACK应答的话，就会认为该消息没有被消费
+				即：未设置
+					channel.basicAck(deliverTag,false);
+			呢么就不会再发另外一条消息了
+		
+		如果设置：
+				channel.basicAck(deliverTag,false);	//ACK应答了
+		这个时候消费者接收了5条信息
+
+   8) 消费端ACK与重回队列(3.10)
+
+	消费端的手工ACK(成功)和NACK(处理失败)
+
+	1 消费端进行消费的时候，如果由于业务异常我们可以进行日志的记录，然后进行补偿！
+	2 由于服务器宕机等严重问题，那我们就需要手工进行ACK 保障消费端消费成功！
+
+	消费端重回队列
+
+	1 消费端重回队列是为了对没有处理成功的消息，吧消息重新回递给Broker！
+	2 一般我们在实际应用中，都会关闭重回队列，也就是设置为false；
+	------------------------------------------------------------
+
+	代码实现：
+	生产端：
+	props不再设置为null
+		AMQP.basicProperties properties=new .Builder()
+			.deliverMode(2)
+			.contentEconding("UTF-8")
+			.headers(headers);
+			.bulid();
+	
+	消费端：
+	不设置Qos
+	//手工签收，必须关闭autoACK = false
+
+	myconsumer
+		handleDelivery
+		        if((Integer)properties.getHeaders().get("num")==0){
+				channel.basicNack(envelope.getDeliveryTag(),false,requeue);
+				#requeue boolean的值，如果为true就是失败(Nack)的消息重回队列，
+				#如果为false，就是不重回队列(重新将该消息添加到队列的尾端)
+			}
+			channel.basicAck(envelope.getDeliveryTag(),false);
+	启动测试
+		首先处理第0条，失败了，放在队列尾端，继续消费1234
+		然后队列尾端继续消费第0条数据(由于队列中只有一条消息了，所以不断重复消费)
+	
+	//该重回队列功能用的不多
+	
+
+   9) TTL队列/消息
+      1 TTL是Time To Live的缩写，也就是生存时间
+      2 RabbitMQ支持消息的过期时间，在消息发送时可以进行指定
+      3 RabbitMQ支持队列的过期时间，从消息入队列开始计算，只要超过了
+      队列的超时时间配置，那么消息会自动清除
+
+      演示：通过管控台发送消息
+
+      TTL有两种：一种是针对消息：该消息过期未被消费，呢么就会被删掉
+		 二种是只对队列：该队列中的消息未被消费，所有消息清空
+
+  10) 死信队列
+	死信队列：DLX，Dead-Letter-Exchange
+
+	1 利用DLX，当消息在一个队列编程死信(dead message) 之后，它能被重新publish
+	到另一个exchange，这个exchange就是DLX
+
+	2 消息变成死信有以下几种情况
+		a、消息被拒绝(basic.reject/basic.nack) 并且requeue=false
+		b、消息TTL过期
+		c、队列达到最大长度
+
+	3 DLX也是一个正常Exchange，和一般的exchange没有区别，它能在任何的队列上被指定，
+	实际上就是设置某个队列的属性
+	
+	4 当这个队列中有死信时，rabbitMQ就会自动的将这个消息重新发布到设置的exchange上去
+	进而被路由到另一个队列
+	
+	5 可以监听这个队列中消息做相应的处理，这个特性可以弥补rabbitMQ3.0以前支持的
+	immediate参数的功能
+
+	6 死信队列的设置：
+		a、首先设置死信队列的exchange和queue，然后进行绑定：
+			A、exchange：dlx.exchange
+			B、Queue：dlx.queue
+			C、routingKey：#
+		b、然后我们进行正常声明交换机、队列、绑定，只不过我们需要在队列上加上
+		一个参数即可：arguments.put("x-dead-letter-exchange","dlx.exchange");
+
+		c、这样消息在过期，requeue、队列在达到最大长度时，消息就可以直接路由到
+		死信队列中！
+
+
+
+
+
+
+
+
+
+

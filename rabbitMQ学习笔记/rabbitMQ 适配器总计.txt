@@ -1,0 +1,43 @@
+1 
+
+总计该类：
+simpleMessageListenerContainer
+		
+	1 设置消费端参数，监听
+		参数
+			setQueues		  //监听哪些队列
+			ConcurrentConsumer()      //当前消费数
+			MaxConcurrentConsumers()  //最大消费数
+			DefaultRequeueRejected()  //重回队列
+			AckknowledgeMode()	  //ack自动应答
+			setConsumerTagStrategy()  //自定义队列标签
+			setMessageConverter(adapter)	  //设置自定义监听
+
+MessageListenerAdapter
+	
+	2 监听(适配器)
+		new MessageListenerAdapter(自定义的委派对象)
+			1 默认
+			2 修改默认方法，修改传参类型
+			3 设置队列绑定方法  #Adapter.setQueueOrTagMethodName
+			4 修改传参类型
+				json格式
+					new Jackson2JsonMessageConverter();
+					set
+
+				java单对象
+					...
+					添加：new DefaultJackson2JavaTypeMapper()
+						json.setJavaTypeMapper(上述对象传参)
+					set
+				java对象多映射转换
+					...
+					添加
+					     Map<String,Class<?>> idClassMapping.put("order",Order.class);
+					     javaType<Mapper.setIdClassMapping(map);
+					     set
+				文件，媒体流等
+
+		
+
+		container.setMessageListener(adapter);

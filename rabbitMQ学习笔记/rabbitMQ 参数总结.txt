@@ -1,0 +1,105 @@
+rabbitMQ的陌生参数记忆：
+	消费端：
+		1、声明
+			a、exhange声明
+				exhangeName
+				exhangeType
+				durable
+				autoDelete
+				arguments
+					5个参数
+			b、queue声明
+				queueName
+				durable
+				autoDelete
+				独占
+				arguments
+					5各参数
+		2、绑定
+			exchange和queue绑定
+				exhangeName queueName routingKey
+		
+		3、消费
+			绑定队列和消费者
+				queueName 
+				autoAck
+				消费者
+
+	生产者：
+		1、发送消息
+			exchangeName
+			routingKey
+			properties
+			body
+
+		2、confirm监听
+			开启监听
+			监听类参数
+				deliveryTag 消息唯一标签
+				mutilate 批量操作
+		
+		3、return监听
+			a、开启监听
+				生产者发送消息最全参数
+					exchangeName
+					routingkey
+					+	madantory //是否开启返回模式 默认false
+					properties
+					body
+		
+			b、监听参数
+				replyCode 响应码
+				replyText 文本
+				exchangeName 
+				routingKey
+				basicProperties
+				body
+			c、实验的时候routingkey设置到生产端的basicPublish
+	
+	自定义消费者：
+		handleDelivery方法参数
+			consumeTag  消费标签
+			envelope    对象包含很多关键信息
+			properties
+			body
+
+
+如：
+consumeTag : amq.ctag-XPZwJFGk7FHPG7vlyLsNpQ
+envelope: Envelope(deliveryTag=1, redeliver=false, exchange=test001_confirm_exchange, routingKey=test01.confirm.save)
+properties : #contentHeader<basic>(content-type=null, content-encoding=null, headers={}, delivery-mode=null, priority=null, 
+		correlation-id=null, reply-to=null, expiration=10000, message-id=null, timestamp=null, type=null, user-id=null, app-id=null, cluster-id=null)
+body: 小猫001 hello morning！0
+
+	
+
+
+	消费端限流：(服务器卡死，卡顿，崩溃等)
+		生产端生产数据过多，消费端消费不了(生产端无法限制)
+		
+		autoAck 设置为false 必须手工签收
+		新方法：qos() 参数 
+			prefetchSize 是否限制生产端 0
+			prefetchCount 每次最多处理多少条 1
+			global    false //在queue上做限制
+				  true  //在channel上做限制
+				  给了一个ack后，再继续下一次给我数据
+
+		channel.basicQos(0,1,false);
+		channel.basicConsumer(queueName,false,new myConsumer(channel));
+		消费者类handleDelivery()
+		channel.basicAck(envlope.getDeliveryTag(),false);
+
+		参数：设置自动签收为false
+			设置qos方法
+			发送给生产端应答ack
+
+
+
+	ACK与重回队列
+		：1 设置autoAck为false
+		  2 channel.NACK(tag,false,true);
+
+
+
+	
